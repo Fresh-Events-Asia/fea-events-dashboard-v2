@@ -130,16 +130,28 @@
     <div style="font-size:15px; font-weight:700; letter-spacing:0.02em; margin-right:12px; white-space:nowrap;">Fresh Events Dashboard</div>
     <div class="nav-links">
       <button class="nav-btn active" id="navOverview" onclick="goPage('overview')">Overview</button>
-      <button class="nav-btn" id="navTSR" onclick="goPage('tsr')">The Sky Race</button>
-      <button class="nav-btn" id="navRL" onclick="goPage('rl')">REDLINE</button>
-      <button class="nav-btn" id="navTMR" onclick="goPage('tmr')">The Music Run</button>
+      <div class="nav-dd" style="position:relative; display:inline-block;">
+        <button class="nav-btn" id="navBrands" onclick="toggleBrandsMenu(event)">Brands ▾</button>
+        <div id="brandsMenu" style="display:none; position:absolute; top:100%; left:0; z-index:60; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:4px; min-width:180px; box-shadow:0 6px 20px rgba(0,0,0,0.4);">
+          <button class="nav-btn" style="display:block; width:100%; text-align:left;" onclick="goPage('tsr');closeBrandsMenu()">The Sky Race</button>
+          <button class="nav-btn" style="display:block; width:100%; text-align:left;" onclick="goPage('rl');closeBrandsMenu()">REDLINE</button>
+          <button class="nav-btn" style="display:block; width:100%; text-align:left;" onclick="goPage('tmr');closeBrandsMenu()">The Music Run</button>
+          <button class="nav-btn" style="display:block; width:100%; text-align:left;" onclick="goPage('dua');closeBrandsMenu()">DUA</button>
+        </div>
+      </div>
+      <button class="nav-btn" id="navPrice" onclick="goPage('price')">Price Intelligence</button>
+      <button class="nav-btn" id="navSettings" onclick="goPage('settings')">Event Settings</button>
     </div>
     <button class="hamburger" id="hamburgerBtn" onclick="toggleMobileMenu()" aria-label="Menu">☰</button>
     <div class="nav-mobile-menu" id="mobileMenu">
       <button class="nav-btn active" id="navOverviewM" onclick="goPage('overview');toggleMobileMenu()">Overview</button>
-      <button class="nav-btn" id="navTSRM" onclick="goPage('tsr');toggleMobileMenu()">The Sky Race</button>
-      <button class="nav-btn" id="navRLM" onclick="goPage('rl');toggleMobileMenu()">REDLINE</button>
-      <button class="nav-btn" id="navTMRM" onclick="goPage('tmr');toggleMobileMenu()">The Music Run</button>
+      <div style="font-size:11px; color:var(--text-dim); padding:6px 4px 2px;">Brands</div>
+      <button class="nav-btn" onclick="goPage('tsr');toggleMobileMenu()">The Sky Race</button>
+      <button class="nav-btn" onclick="goPage('rl');toggleMobileMenu()">REDLINE</button>
+      <button class="nav-btn" onclick="goPage('tmr');toggleMobileMenu()">The Music Run</button>
+      <button class="nav-btn" onclick="goPage('dua');toggleMobileMenu()">DUA</button>
+      <button class="nav-btn" id="navPriceM" onclick="goPage('price');toggleMobileMenu()">Price Intelligence</button>
+      <button class="nav-btn" id="navSettingsM" onclick="goPage('settings');toggleMobileMenu()">Event Settings</button>
     </div>
   </div>
 
@@ -155,6 +167,16 @@
   <div id="page-tsr" style="display:none;"></div>
   <div id="page-rl" style="display:none;"></div>
   <div id="page-tmr" style="display:none;"></div>
+  <div id="page-dua" style="display:none;">
+    <img src="images/FE_logo_Master_White%20BG_RGB_white%20text.png" alt="DUA" style="height:64px; width:auto; object-fit:contain; display:block; margin-top:24px; margin-bottom:8px;">
+    <h2 style="margin-top:12px;">DUA</h2>
+    <div class="sub">No data yet — this brand's Google Sheet is still empty. The page will populate automatically once data is added.</div>
+  </div>
+  <div id="page-price" style="display:none;">
+    <h2 style="margin-top:24px;">Price Intelligence</h2>
+    <div class="sub">Coming soon.</div>
+  </div>
+  <div id="page-settings" style="display:none;"></div>
 
 </div>
 
@@ -211,22 +233,24 @@ function toggleMobileMenu(){
   menu.classList.toggle('open');
 }
 
+function toggleBrandsMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('brandsMenu'); if(m) m.style.display = m.style.display==='none' ? 'block' : 'none'; }
+function closeBrandsMenu(){ const m=document.getElementById('brandsMenu'); if(m) m.style.display='none'; }
+document.addEventListener('click', (e)=>{
+  const dd=document.getElementById('brandsMenu'), nb=document.getElementById('navBrands');
+  if(dd && dd.style.display!=='none' && !dd.contains(e.target) && e.target!==nb) dd.style.display='none';
+});
+
 function goPage(p){
-  ['overview','tsr','rl','tmr'].forEach(page=>{
-    document.getElementById('page-'+page).style.display = p===page ? '' : 'none';
-  });
-  ['navOverview','navTSR','navRL','navTMR'].forEach(id=>{
-    const el = document.getElementById(id);
-    if(el) el.classList.toggle('active', id.toLowerCase().includes(p==='overview'?'overview':p));
-  });
-  ['navOverviewM','navTSRM','navRLM','navTMRM'].forEach(id=>{
-    const el = document.getElementById(id);
-    if(el) el.classList.toggle('active', id.toLowerCase().includes(p==='overview'?'overview':p));
-  });
-  // render brand page on tab click - always re-render if data available
-  if(p!=='overview' && brandData[p]){
-    renderBrandPage(p);
-  }
+  const pages = ['overview','tsr','rl','tmr','dua','price','settings'];
+  pages.forEach(page=>{ const el=document.getElementById('page-'+page); if(el) el.style.display = p===page ? '' : 'none'; });
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  const map = {overview:'navOverview', price:'navPrice', settings:'navSettings'};
+  if(map[p]){ const d=document.getElementById(map[p]); if(d) d.classList.add('active'); const m=document.getElementById(map[p]+'M'); if(m) m.classList.add('active'); }
+  if(['tsr','rl','tmr','dua'].includes(p)){ const nb=document.getElementById('navBrands'); if(nb) nb.classList.add('active'); }
+  // render brand page on click if data available (dua has no data/config yet → static placeholder)
+  if(['tsr','rl','tmr'].includes(p) && brandData[p]) renderBrandPage(p);
+  if(p==='settings') ensureEventSettings();
+  closeBrandsMenu();
 }
 
 async function fetchJSON(url, opts){ const res = await fetch(url, opts); return await res.json(); }
@@ -1057,22 +1081,7 @@ function brandPageHTML(brandKey){
       <p style="font-size:11px; color:var(--text-dim); margin:0; font-style:italic;">* Year refers to the event year (from Event Name), not the calendar year of registration.</p>
     </div>
 
-    <details class="settings" id="settingsPanel_${brandKey}">
-      <summary>Event Settings <span id="eventStatusBadge_${brandKey}" style="margin-left:8px; font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; vertical-align:middle;"></span></summary>
-      <div class="settings-body">
-        <div class="target-grid">
-          ${brandKey==='tsr' ? `<div><label>Additional members needed per team</label><input type="number" id="membersPerTeam_${brandKey}" placeholder="e.g. 2" /></div>` : ''}
-          ${brandKey==='rl' ? `<div><label>Additional members needed (Doubles)</label><input type="number" id="doublesMembers_${brandKey}" placeholder="e.g. 1" /></div><div><label>Additional members needed (Team Relay)</label><input type="number" id="teamRelayMembers_${brandKey}" placeholder="e.g. 3" /></div>` : ''}        </div>
-        <label style="margin-top:6px;">Phase definitions — name, date range, and ticket target (all required for run-rate and campaign days calc)</label>
-        <div class="req-note">Each phase needs a ticket target. The last phase's end date is used as the event date.</div>
-        <div id="phaseDefRows_${brandKey}"></div>
-        <button class="secondary" type="button" onclick="addPhaseDefRow('${brandKey}','','','','')">+ Add phase</button>
-        <div class="save-row">
-          <button onclick="saveSettingsFor('${brandKey}')">Save settings</button>
-          <span id="saveStatus${brandKey === 'tsr' ? 'TSR' : 'RL'}"></span>
-        </div>
-      </div>
-    </details>
+    <details class="settings" id="settingsPanel_${brandKey}" style="display:none;"></details>
 
     <div class="metrics" id="metrics_${brandKey}"></div>
 
@@ -1274,11 +1283,6 @@ function initBrandPage(brandKey){
   document.getElementById('yearFilter_'+brandKey).addEventListener('change', ()=>renderSRBody(brandKey));
   document.getElementById('compareYearFilter_'+brandKey).addEventListener('change', ()=>renderSRBody(brandKey));
   document.getElementById('countryFilter_'+brandKey).addEventListener('change', ()=>renderSRBody(brandKey));
-  document.getElementById('countryFilter_'+brandKey).addEventListener('change', ()=>{
-    const container = document.getElementById('phaseDefRows_'+brandKey);
-    if(container) container._lastPhaseKey = null; // force reload
-    renderSRBody(brandKey);
-  });
   document.getElementById('compareCountryFilter_'+brandKey).addEventListener('change', ()=>renderSRBody(brandKey));
   document.getElementById('catFilter1_'+brandKey).addEventListener('change', ()=>renderSRBody(brandKey));
   document.getElementById('catFilter2_'+brandKey).addEventListener('change', ()=>renderSRBody(brandKey));
@@ -1318,19 +1322,6 @@ function renderBrandPage(brandKey){
   populateCountryFilter(document.getElementById('countryFilter_'+brandKey), data.rows);
   populateCompareCountryFilter(document.getElementById('compareCountryFilter_'+brandKey), data.rows);
   populateYearFilters(brandKey);
-
-  const s = data.settings;
-  if(brandKey==='tsr'){
-    const mptEl = document.getElementById('membersPerTeam_tsr');
-    if(mptEl && mptEl.value === "" && s.membersPerTeam) mptEl.value = s.membersPerTeam;
-  }
-  if(brandKey==='rl'){
-    const dmEl = document.getElementById('doublesMembers_rl');
-    if(dmEl && dmEl.value === "" && s.doublesMembers) dmEl.value = s.doublesMembers;
-    const trmEl = document.getElementById('teamRelayMembers_rl');
-    if(trmEl && trmEl.value === "" && s.teamRelayMembers) trmEl.value = s.teamRelayMembers;
-  }
-  if(document.getElementById('phaseDefRows_'+brandKey).children.length === 0) renderPhaseDefRows(brandKey);
 
   renderSRBody(brandKey);
 }
@@ -1380,6 +1371,131 @@ function renderPhaseDefRows(brandKey){
   phases.forEach(p=> addPhaseDefRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||''));
 }
 
+/* ===================== EVENT SETTINGS (consolidated page) ===================== */
+let _esBuilt = false;
+const ES_BRANDS = [['tsr','The Sky Race'],['rl','REDLINE'],['tmr','The Music Run'],['dua','DUA']];
+
+function ensureEventSettings(){
+  if(_esBuilt) return;
+  const host = document.getElementById('page-settings');
+  if(!host) return;
+  host.innerHTML =
+    `<h2 style="margin-top:24px;">Event Settings</h2>
+     <div class="sub">Phase definitions and targets for every brand — saved by brand · country · event year. New countries or event years appear automatically once they show up in the data; new ones stay empty until you fill them in and save.</div>`
+    + ES_BRANDS.map(([k,label])=>esSectionHTML(k,label)).join('');
+  ES_BRANDS.forEach(([k])=>{
+    const hasData = brandData[k] && brandData[k].rows && brandData[k].rows.length;
+    if(!hasData) return;
+    populateESFilters(k);
+    const yf = document.getElementById('esYearFilter_'+k), cf = document.getElementById('esCountryFilter_'+k);
+    if(yf) yf.addEventListener('change', ()=>loadESPhaseRows(k));
+    if(cf) cf.addEventListener('change', ()=>loadESPhaseRows(k));
+    loadESPhaseRows(k);
+  });
+  _esBuilt = true;
+}
+
+function esSectionHTML(brandKey, label){
+  const hasData = brandData[brandKey] && brandData[brandKey].rows && brandData[brandKey].rows.length;
+  if(!hasData){
+    return `<details class="settings" style="margin-bottom:12px;"><summary>${label}</summary><div class="settings-body"><div class="sub">No data yet.</div></div></details>`;
+  }
+  const teamInputs = brandKey==='tsr'
+    ? `<div><label>Additional members needed per team</label><input type="number" id="esMembersPerTeam_${brandKey}" placeholder="e.g. 2" /></div>`
+    : brandKey==='rl'
+    ? `<div><label>Additional members needed (Doubles)</label><input type="number" id="esDoublesMembers_${brandKey}" placeholder="e.g. 1" /></div><div><label>Additional members needed (Team Relay)</label><input type="number" id="esTeamRelayMembers_${brandKey}" placeholder="e.g. 3" /></div>`
+    : '';
+  return `
+  <details class="settings" style="margin-bottom:12px;">
+    <summary>${label}</summary>
+    <div class="settings-body">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; max-width:420px;">
+        <div style="display:flex; flex-direction:column; gap:4px;"><label style="margin:0; font-size:12px; color:var(--text-dim);">Event year</label><select id="esYearFilter_${brandKey}"></select></div>
+        <div style="display:flex; flex-direction:column; gap:4px;"><label style="margin:0; font-size:12px; color:var(--text-dim);">Country</label><select id="esCountryFilter_${brandKey}"></select></div>
+      </div>
+      <div class="target-grid">${teamInputs}</div>
+      <label style="margin-top:6px;">Phase definitions — name, date range, and ticket target</label>
+      <div class="req-note">Each phase needs a ticket target. Settings save against the country + event year selected above.</div>
+      <div id="esPhaseDefRows_${brandKey}"></div>
+      <button class="secondary" type="button" onclick="addESPhaseRow('${brandKey}','','','','')">+ Add phase</button>
+      <div class="save-row">
+        <button onclick="saveESSettings('${brandKey}')">Save settings</button>
+        <span id="esSaveStatus_${brandKey}"></span>
+      </div>
+    </div>
+  </details>`;
+}
+
+function populateESFilters(brandKey){
+  const rows = srRowsFor(brandKey);
+  const yf = document.getElementById('esYearFilter_'+brandKey);
+  const cf = document.getElementById('esCountryFilter_'+brandKey);
+  if(!yf || !cf) return;
+  const years = [...new Set(rows.map(r=>getEventYear(r)))].sort();
+  const prevY = yf.value;
+  yf.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  yf.value = prevY && years.includes(prevY) ? prevY : years[years.length-1];
+  populateCountryFilter(cf, rows);
+}
+
+function addESPhaseRow(brandKey, name, start, end, target){
+  const container = document.getElementById('esPhaseDefRows_'+brandKey);
+  if(!container) return;
+  const row = document.createElement('div');
+  row.className = 'phase-def-row';
+  row.innerHTML = `
+    <div><label>Phase name</label><input type="text" class="pd-name" value="${name}" placeholder="e.g. Early Bird"/></div>
+    <div><label>Start date</label><input type="date" class="pd-start" value="${start}"/></div>
+    <div><label>End date</label><input type="date" class="pd-end" value="${end}"/></div>
+    <div><label>Ticket target</label><input type="number" class="pd-target" value="${target}" placeholder="e.g. 2000"/></div>
+    <button type="button" class="rm-phase" onclick="this.parentElement.remove()">Remove</button>
+  `;
+  container.appendChild(row);
+}
+
+function loadESPhaseRows(brandKey){
+  const container = document.getElementById('esPhaseDefRows_'+brandKey);
+  if(!container) return;
+  const year = document.getElementById('esYearFilter_'+brandKey).value;
+  const country = document.getElementById('esCountryFilter_'+brandKey).value;
+  const all = brandData[brandKey].settings || {};
+  const phaseKey = `phases_${country}_${year}`;
+  const phases = all[phaseKey] !== undefined ? all[phaseKey] : [];
+  container.innerHTML = '';
+  if(phases.length){ phases.forEach(p=>addESPhaseRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||'')); }
+  else { addESPhaseRow(brandKey, '', '', '', ''); }
+  if(brandKey==='tsr'){ const el=document.getElementById('esMembersPerTeam_tsr'); if(el) el.value = all.membersPerTeam || ''; }
+  if(brandKey==='rl'){ const d=document.getElementById('esDoublesMembers_rl'); if(d) d.value = all.doublesMembers || ''; const t=document.getElementById('esTeamRelayMembers_rl'); if(t) t.value = all.teamRelayMembers || ''; }
+}
+
+async function saveESSettings(brandKey){
+  const statusEl = document.getElementById('esSaveStatus_'+brandKey);
+  const setStatus = (msg,ok)=>{ if(statusEl){ statusEl.textContent=msg; statusEl.style.color = ok===false ? 'var(--bad)' : 'var(--good)'; setTimeout(()=>{ if(statusEl){statusEl.textContent=''; statusEl.style.color='';} }, 3000); } };
+  const year = document.getElementById('esYearFilter_'+brandKey).value;
+  const country = document.getElementById('esCountryFilter_'+brandKey).value;
+  const phaseKey = `phases_${country}_${year}`;
+  const phases = []; let missingTarget=false;
+  document.querySelectorAll('#esPhaseDefRows_'+brandKey+' .phase-def-row').forEach(row=>{
+    const name=row.querySelector('.pd-name').value;
+    const start=row.querySelector('.pd-start').value;
+    const end=row.querySelector('.pd-end').value;
+    const target=row.querySelector('.pd-target').value;
+    if(name){ if(!target) missingTarget=true; phases.push({name,start,end,target}); }
+  });
+  if(missingTarget){ setStatus('Every phase needs a ticket target', false); return; }
+  const existing = brandData[brandKey].settings || {};
+  let settings = {...existing, [phaseKey]: phases};
+  if(brandKey==='tsr'){ const el=document.getElementById('esMembersPerTeam_tsr'); settings.membersPerTeam = el && el.value ? el.value : 2; }
+  else if(brandKey==='rl'){ const d=document.getElementById('esDoublesMembers_rl'); const t=document.getElementById('esTeamRelayMembers_rl'); settings.doublesMembers = d && d.value ? d.value : 1; settings.teamRelayMembers = t && t.value ? t.value : 3; }
+  brandData[brandKey].settings = settings;
+  try{
+    await fetch(BRANDS[brandKey].apiUrl, {method:'POST', body: JSON.stringify({type:'settings', data:settings})});
+    setStatus(`Saved ✓ (${country} ${year})`, true);
+    if(pageInitialized[brandKey]){ try{ renderSRBody(brandKey); }catch(e){ console.error('renderSRBody after save', e); } }
+    try{ renderOverview(); }catch(e){ console.error('renderOverview after save', e); }
+  }catch(e){ setStatus('Failed to save', false); }
+}
+
 function filteredByCategory(rows, cat){
   if(cat==='all') return rows;
   return rows.filter(r=>r['Category']===cat);
@@ -1401,7 +1517,6 @@ function renderSRBody(brandKey){
   const viewRows = filterRows(year, country);
   const cmpRows = (compareYear && compareCountry) ? filterRows(compareYear, compareCountry) : null;
   const showSettings = isLatestYear(brandKey, year);
-  document.getElementById('settingsPanel_'+brandKey).style.display = showSettings ? '' : 'none';
   document.getElementById('paceChartPanel_'+brandKey).style.display = showSettings ? '' : 'none';
 
   // load country+year specific phase settings
@@ -1417,21 +1532,6 @@ function renderSRBody(brandKey){
   const cmpConvKey = compareYear ? `conv_${compareCountry}_${compareYear}` : null;
   const cmpConvRate = cmpConvKey && allSettings[cmpConvKey] !== undefined ? allSettings[cmpConvKey] : null;
 
-  // re-render phase def rows if country or year changed
-  if(showSettings){
-    const container = document.getElementById('phaseDefRows_'+brandKey);
-    if(container._lastPhaseKey !== phaseKey){
-      container._lastPhaseKey = phaseKey;
-      container.innerHTML = '';
-      if(countryPhases.length){
-        countryPhases.forEach(p=>addPhaseDefRow(brandKey, p.name, p.start, p.end, p.target));
-      } else {
-        // no phases for this country+year — show one empty row
-        container.innerHTML = '';
-        addPhaseDefRow(brandKey, '', '', '', '');
-      }
-    }
-  }
   const curr = computeBrandYearMetrics(viewRows, year, brandKey, settings);
   const cmp = (compareYear && cmpRows) ? computeBrandYearMetrics(cmpRows, compareYear, brandKey, settings) : null;
   const avgPriceCurr = curr.regTickets ? curr.totalRev/curr.regTickets : 0;
