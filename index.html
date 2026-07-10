@@ -289,6 +289,11 @@ async function loadAll(){
   if(pageInitialized['tsr']) renderBrandPage('tsr');
   if(pageInitialized['rl']) renderBrandPage('rl');
   if(pageInitialized['tmr']) renderBrandPage('tmr');
+
+  // (re)build Event Settings against freshly loaded data — skip if the user is currently on it (avoid clobbering edits)
+  const esPage = document.getElementById('page-settings');
+  const esVisible = esPage && esPage.style.display !== 'none' && esPage.innerHTML.trim() !== '';
+  if(!esVisible){ _esBuilt = false; _esHadData = false; ensureEventSettings(); }
 }
 
 /* =================== TSR2 SECTIONS =================== */
@@ -1372,11 +1377,14 @@ function renderPhaseDefRows(brandKey){
 }
 
 /* ===================== EVENT SETTINGS (consolidated page) ===================== */
-let _esBuilt = false;
+let _esBuilt = false, _esHadData = false;
 const ES_BRANDS = [['tsr','The Sky Race'],['rl','REDLINE'],['tmr','The Music Run'],['dua','DUA']];
 
 function ensureEventSettings(){
-  if(_esBuilt) return;
+  const anyData = ['tsr','rl','tmr'].some(k=>brandData[k]&&brandData[k].rows&&brandData[k].rows.length);
+  // Skip only if we've already built a version that had data, or there's still no data to show.
+  // (An earlier build made before data loaded must be rebuilt once data arrives.)
+  if(_esBuilt && (_esHadData || !anyData)) return;
   const host = document.getElementById('page-settings');
   if(!host) return;
   host.innerHTML =
@@ -1392,6 +1400,7 @@ function ensureEventSettings(){
     if(cf) cf.addEventListener('change', ()=>loadESPhaseRows(k));
     loadESPhaseRows(k);
   });
+  _esHadData = anyData;
   _esBuilt = true;
 }
 
