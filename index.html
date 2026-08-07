@@ -323,6 +323,46 @@ function unifiedAxisMaxDay(brandKey, years, countries){
   return Math.max(1, ...years.map((y,i)=>{ const w=unifiedWindow(brandKey,y,(countries&&countries[i])||'all'); return w?w.maxDay:0; }));
 }
 
+/* Earliest ticket-sale date (Tab 1) for a year+country. */
+function firstTicketDate(brandKey, year, country){
+  const bd = brandData[brandKey]; if(!bd) return null;
+  const times = (bd.rows||[])
+    .filter(r=>getEventYear(r)===String(year) && (country==='all'||r['Country']===country))
+    .map(r=>parseMYT(r['Date cleaned (DD/MM/YYYY)']))
+    .filter(d=>!isNaN(d)).map(d=>d.getTime());
+  return times.length ? new Date(Math.min(...times)) : null;
+}
+
+/* Aligned comparison axis.
+   - Viewing year (index 0): Day 0 = its campaign start (unified window start).
+   - Comparison year(s): shifted so their first ticket sale lands on the SAME day
+     number as the viewing year's first ticket sale. Each year's line then begins
+     (displayStart) at its own campaign start under that shift — which may be a
+     positive day or, if its lead-in is longer than the viewing year's, a negative day.
+   Returns per-series anchors (for the builders) and displayStarts (where each line begins). */
+function alignedAxis(brandKey, years, countries){
+  const dayMs = 86400000;
+  const anchors = [], displayStarts = [];
+  const viewWin = unifiedWindow(brandKey, years[0], countries[0]);
+  const viewStart = viewWin ? viewWin.start : new Date();
+  const vFirstT = firstTicketDate(brandKey, years[0], countries[0]);
+  const sView = (viewWin && vFirstT) ? Math.round((vFirstT - viewStart)/dayMs) : 0;
+  anchors[0] = viewStart; displayStarts[0] = 0;
+  for(let i=1;i<years.length;i++){
+    const cWin = unifiedWindow(brandKey, years[i], countries[i]);
+    const cFirstT = firstTicketDate(brandKey, years[i], countries[i]);
+    if(cWin && cFirstT){
+      const anchor = new Date(cFirstT.getTime() - sView*dayMs); // comparison first ticket → day sView
+      anchors[i] = anchor;
+      displayStarts[i] = Math.round((cWin.start - anchor)/dayMs);  // comparison campaign start day (may be negative)
+    } else {
+      anchors[i] = cWin ? cWin.start : viewStart;
+      displayStarts[i] = 0;
+    }
+  }
+  return {anchors, displayStarts};
+}
+
 function renderTSR2Sections(brandKey, year, compareYear, country){
   const allRows = (brandData[brandKey].tsr2rows||[]);
   const tsr1Rows = brandData[brandKey].rows || [];
@@ -402,14 +442,15 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     return result;
   }
 
-  const win1 = unifiedWindow(brandKey, year, country);
-  const win2 = compareYear ? unifiedWindow(brandKey, compareYear, country) : null;
-  const s1 = buildSessionSeries(rows, win1?win1.start:null);
-  const s2 = cmpRows ? buildSessionSeries(cmpRows, win2?win2.start:null) : null;
-  const maxDay = Math.max(1, win1?win1.maxDay:0, win2?win2.maxDay:0, s1.lastDayWithData, s2?s2.lastDayWithData:0);
-  const labels = Array.from({length:maxDay+1},(_,i)=>'Day '+i);
   const years = [year, compareYear].filter(Boolean);
+  const axCountries = years.map(()=>country);
+  const {anchors, displayStarts} = alignedAxis(brandKey, years, axCountries);
+  const s1 = buildSessionSeries(rows, anchors[0]);
+  const s2 = cmpRows ? buildSessionSeries(cmpRows, anchors[1]) : null;
   const series = [s1, s2].filter(Boolean);
+  const minDay = Math.min(0, ...displayStarts.slice(0, series.length));
+  const maxDay = Math.max(1, ...series.map(s=>s.lastDayWithData));
+  const labels = Array.from({length: maxDay - minDay + 1}, (_,k)=>'Day '+(minDay+k));
 
   // legend
   const legendEl = document.getElementById('legendTraffic_'+brandKey);
@@ -418,11 +459,11 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
   // traffic chart — phase lines from TSR2 data
   const trafficCtx = document.getElementById('trafficChart_'+brandKey);
   destroyChart('trafficChart_'+brandKey);
-  const trafficAnnotations = s1.start ? buildDayPhaseAnnotations(rows, s1.start) : [];
+  const trafficAnnotations = (s1.start ? buildDayPhaseAnnotations(rows, s1.start) : []).map(a=>({...a, xMin:a.xMin - minDay, xMax:a.xMax - minDay}));
   const trafficOpts = chartOptsWithAnnotations(trafficAnnotations);
   trafficOpts.plugins = trafficOpts.plugins || {};
   trafficOpts.plugins.tooltip = {callbacks:{title:items=>{
-    const d=items[0].dataIndex;
+    const d=items[0].dataIndex + minDay;
     const dates=series.map(s=>s.dayToDate[d]).filter(Boolean);
     const strs=[...new Set(dates.map(dt=>fmtMYT(dt)))];
     return `Day ${d}${strs.length?' — '+strs.join(' / '):''}`;
@@ -431,7 +472,7 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     type:'line',
     data:{labels, datasets: series.map((s,i)=>({
       label:String(years[i]),
-      data: labels.map((_,d)=>d>s.lastDayWithData?null:(s.byDay[d]||0)),
+      data: labels.map((_,k)=>{ const d = minDay+k; return (d < displayStarts[i] || d > s.lastDayWithData) ? null : (s.byDay[d]||0); }),
       borderColor:PALETTE[i], backgroundColor:'transparent', borderWidth:2.5, pointRadius:0, tension:0.15, spanGaps:false
     }))},
     options: trafficOpts
@@ -474,9 +515,9 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     cmpTsr2ByDate[key] = (cmpTsr2ByDate[key]||0) + (parseFloat(r['Users'])||0);
   });
 
-  // build CR arrays - each year uses its OWN TSR2 day axis
-  // crData uses s1.dayToDate (2026 TSR2 days), cmpCrData uses s2.dayToDate (2025 TSR2 days)
-  const crData = labels.map((_,d)=>{
+  // build CR arrays — day index k maps to axis day (minDay+k); each year matched by its own date
+  const crData = labels.map((_,k)=>{
+    const d = minDay + k;
     if(d > s1.lastDayWithData) return null;
     const dt = s1.dayToDate[d];
     if(!dt) return null;
@@ -487,9 +528,10 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     return parseFloat(((tickets/users)*100).toFixed(2));
   });
 
-  const cmpCrData = (s2 && compareYear) ? labels.map((_,d)=>{
+  const cmpCrData = (s2 && compareYear) ? labels.map((_,k)=>{
+    const d = minDay + k;
     if(d > s2.lastDayWithData) return null;
-    const dt = s2.dayToDate[d];  // 2025 TSR2's own Day 0
+    const dt = s2.dayToDate[d];  // comparison year's shifted day axis
     if(!dt) return null;
     const key = new Date(dt.getTime()+8*60*60*1000).toISOString().slice(0,10);
     const users = cmpTsr2ByDate[key]||0;
@@ -498,8 +540,8 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     return parseFloat(((tickets/users)*100).toFixed(2));
   }) : null;
 
-  // unified axis: keep CR on the same Day 0 as the other charts (no trim)
-  const firstCrDay = 0;
+  // aligned axis: no trim (shares Day 0 with the other charts)
+  const firstCrDay = minDay;
   const trimFrom = 0;
   const crLabels = labels.slice(trimFrom);
   const crDataTrimmed = crData.slice(trimFrom);
@@ -2731,20 +2773,21 @@ function renderRevChart(brandKey, rows, year, compareYear, cat, country, compare
   const years = compareYear ? [year, compareYear] : [year];
   const countries = compareYear ? [country, compareCountry] : [country];
   document.getElementById('legendRev_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''}</span>`).join('');
+  const {anchors, displayStarts} = alignedAxis(brandKey, years, countries);
   const seriesList = years.map((y,i)=>{
     const filtered = rows.filter(r=>getEventYear(r)===String(y)&&(countries[i]==='all'||r['Country']===countries[i]));
-    const win = unifiedWindow(brandKey, y, countries[i]);
-    return buildDailyRevSeries(filtered, cat, win?win.start:null);
+    return buildDailyRevSeries(filtered, cat, anchors[i]);
   });
-  const maxDay = Math.max(1, unifiedAxisMaxDay(brandKey, years, countries), ...seriesList.map(s=>s.lastDayWithData));
-  const labels = Array.from({length:maxDay+1}, (_,i)=>"Day "+i);
+  const minDay = Math.min(0, ...displayStarts);
+  const maxDay = Math.max(1, ...seriesList.map(s=>s.lastDayWithData));
+  const nDays = maxDay - minDay + 1;
+  const labels = Array.from({length:nDays}, (_,k)=>"Day "+(minDay+k));
   const datasets = seriesList.map((s,i)=>{
-    let cum = 0;
-    const data = labels.map((_,d)=>{
-      if(d > s.lastDayWithData) return null;
-      cum += (s.byDay[d]||0);
-      return cum;
-    });
+    let cum = 0; const data = [];
+    for(let k=0;k<nDays;k++){ const d = minDay + k;
+      if(d < displayStarts[i] || d > s.lastDayWithData){ data.push(null); }
+      else { cum += (s.byDay[d]||0); data.push(cum); }
+    }
     return {label:String(years[i]), data, borderColor:PALETTE[i], backgroundColor:'transparent', borderWidth:2.5, pointRadius:0, tension:0.15, spanGaps:false};
   });
   const id = 'revChart_'+brandKey;
@@ -2754,7 +2797,7 @@ function renderRevChart(brandKey, rows, year, compareYear, cat, country, compare
   opts.plugins.tooltip = {
     callbacks:{
       title: items=>{
-        const d = items[0].dataIndex;
+        const d = items[0].dataIndex + minDay;
         const dates = seriesList.map(s=>s.dayToDate[d]).filter(Boolean);
         const dateStrs = dates.map(dt=>fmtMYT(dt));
         const unique = [...new Set(dateStrs)];
@@ -2781,20 +2824,21 @@ function renderCumChart(brandKey, rows, year, compareYear, cat, country, compare
   const titleEl = document.getElementById('cumChartTitle_'+brandKey);
   if(titleEl) titleEl.textContent = `Cumulative daily tickets (${modeLabel}) — year comparison`;
   document.getElementById('legendDaily1_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''}</span>`).join('');
+  const {anchors:cumAnchors, displayStarts:cumDisplayStarts} = alignedAxis(brandKey, years, countries);
   const seriesList = years.map((y,i)=>{
     const filtered = rows.filter(r=>getEventYear(r)===String(y)&&(countries[i]==='all'||r['Country']===countries[i]));
-    const win = unifiedWindow(brandKey, y, countries[i]);
-    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings, win?win.start:null);
+    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings, cumAnchors[i]);
   });
-  const maxDay = Math.max(1, unifiedAxisMaxDay(brandKey, years, countries), ...seriesList.map(s=>s.lastDayWithData));
-  const labels = Array.from({length:maxDay+1}, (_,i)=>"Day "+i);
+  const minDay = Math.min(0, ...cumDisplayStarts);
+  const maxDay = Math.max(1, ...seriesList.map(s=>s.lastDayWithData));
+  const nDays = maxDay - minDay + 1;
+  const labels = Array.from({length:nDays}, (_,k)=>"Day "+(minDay+k));
   const datasets = seriesList.map((s,i)=>{
-    let cum=0;
-    const data = labels.map((_,d)=>{
-      if(d > s.lastDayWithData) return null;
-      cum += (s.byDay[d]||0);
-      return cum;
-    });
+    let cum=0; const data = [];
+    for(let k=0;k<nDays;k++){ const d = minDay + k;
+      if(d < cumDisplayStarts[i] || d > s.lastDayWithData){ data.push(null); }
+      else { cum += (s.byDay[d]||0); data.push(cum); }
+    }
     return {label:String(years[i]), data, borderColor:PALETTE[i], backgroundColor:'transparent', borderWidth:2.5, pointRadius:0, tension:0.15, spanGaps:false};
   });
   const id = 'cumChart_'+brandKey;
@@ -2804,7 +2848,7 @@ function renderCumChart(brandKey, rows, year, compareYear, cat, country, compare
   cumOpts.plugins.tooltip = {
     callbacks:{
       title: items=>{
-        const d = items[0].dataIndex;
+        const d = items[0].dataIndex + minDay;
         const dates = seriesList.map(s=>s.dayToDate[d]).filter(Boolean);
         const dateStrs = dates.map(dt=>fmtMYT(dt));
         const unique = [...new Set(dateStrs)];
@@ -2824,19 +2868,21 @@ function renderDailyDeltaChart(brandKey, rows, year, compareYear, cat, country, 
   const titleEl = document.getElementById('dailyChartTitle_'+brandKey);
   if(titleEl) titleEl.textContent = `Daily additional tickets (${modeLabel}) — year comparison`;
   document.getElementById('legendDaily2_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''}</span>`).join('');
+  const {anchors:ddAnchors, displayStarts:ddDisplayStarts} = alignedAxis(brandKey, years, countries);
   const seriesList = years.map((y,i)=>{
     const filtered = rows.filter(r=>getEventYear(r)===String(y)&&(countries[i]==='all'||r['Country']===countries[i]));
-    const win = unifiedWindow(brandKey, y, countries[i]);
-    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings, win?win.start:null);
+    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings, ddAnchors[i]);
   });
-  const maxDay2 = Math.max(1, unifiedAxisMaxDay(brandKey, years, countries), ...seriesList.map(s=>s.lastDayWithData));
-  const labels2 = Array.from({length:maxDay2+1}, (_,i)=>"Day "+i);
+  const minDay2 = Math.min(0, ...ddDisplayStarts);
+  const maxDay2 = Math.max(1, ...seriesList.map(s=>s.lastDayWithData));
+  const nDays2 = maxDay2 - minDay2 + 1;
+  const labels2 = Array.from({length:nDays2}, (_,k)=>"Day "+(minDay2+k));
   const datasets2 = seriesList.map((s,i)=>({
     label:String(years[i]),
-    data: labels2.map((_,d)=> d > s.lastDayWithData ? null : (s.byDay[d]||0)),
+    data: Array.from({length:nDays2}, (_,k)=>{ const d = minDay2+k; return (d < ddDisplayStarts[i] || d > s.lastDayWithData) ? null : (s.byDay[d]||0); }),
     borderColor:PALETTE[i], backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:0.2, spanGaps:false
   }));
-  const annotations = buildPhaseAnnotations(rows, years, seriesList);
+  const annotations = buildPhaseAnnotations(rows, years, seriesList).map(a=>({...a, xMin:a.xMin - minDay2, xMax:a.xMax - minDay2}));
   const id2 = 'dailyDeltaChart_'+brandKey;
   destroyChart(id2);
   const ddOpts = chartOptsWithAnnotations(annotations);
@@ -2844,7 +2890,7 @@ function renderDailyDeltaChart(brandKey, rows, year, compareYear, cat, country, 
   ddOpts.plugins.tooltip = {
     callbacks:{
       title: items=>{
-        const d = items[0].dataIndex;
+        const d = items[0].dataIndex + minDay2;
         const dates = seriesList.map(s=>s.dayToDate[d]).filter(Boolean);
         const dateStrs = dates.map(dt=>fmtMYT(dt));
         const unique = [...new Set(dateStrs)];
