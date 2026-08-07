@@ -303,6 +303,26 @@ function getTSR2Year(r){
   return m ? m[1] : '';
 }
 
+/* Unified day window: Day 0 = earliest date across ticket data (Tab 1) AND
+   GA4/EDM/social data (Tab 2) for a given year+country; maxDay reaches the
+   latest date across both. Per year, so each campaign keeps its own Day 0. */
+function unifiedWindow(brandKey, year, country){
+  const bd = brandData[brandKey]; if(!bd) return null;
+  const t1 = (bd.rows||[])
+    .filter(r=>getEventYear(r)===String(year) && (country==='all'||r['Country']===country))
+    .map(r=>parseMYT(r['Date cleaned (DD/MM/YYYY)']));
+  const t2 = (bd.tsr2rows||[])
+    .filter(r=>getTSR2Year(r)===String(year) && (country==='all'||r['Country']===country))
+    .map(r=>parseMYT(r['Date cleaned (DD/MM/YYYY)']));
+  const times = t1.concat(t2).filter(d=>!isNaN(d)).map(d=>d.getTime());
+  if(!times.length) return null;
+  const min = Math.min(...times), max = Math.max(...times);
+  return { start:new Date(min), maxDay:Math.round((max-min)/(1000*60*60*24)) };
+}
+function unifiedAxisMaxDay(brandKey, years, countries){
+  return Math.max(1, ...years.map((y,i)=>{ const w=unifiedWindow(brandKey,y,(countries&&countries[i])||'all'); return w?w.maxDay:0; }));
+}
+
 function renderTSR2Sections(brandKey, year, compareYear, country){
   const allRows = (brandData[brandKey].tsr2rows||[]);
   const tsr1Rows = brandData[brandKey].rows || [];
@@ -311,13 +331,13 @@ function renderTSR2Sections(brandKey, year, compareYear, country){
   const cmpYr2 = compareYear ? allRows.filter(r=>getTSR2Year(r)===String(compareYear) && (country==='all'||r['Country']===country)) : null;
   const allTsr1 = tsr1Rows.filter(r=>country==='all'||r['Country']===country);
 
-  renderTrafficSection(brandKey, yr2, cmpYr2, allTsr1, year, compareYear);
+  renderTrafficSection(brandKey, yr2, cmpYr2, allTsr1, year, compareYear, country);
   renderEDMSection(brandKey, yr2, year, compareYear, allRows);
   renderSocialSection(brandKey, yr2, year, compareYear, allRows);
 }
 
 // ---- TRAFFIC ----
-function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYear){
+function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYear, country){
   // overview metrics with compare delta
   const totalSessions = rows.reduce((a,r)=>a+(parseFloat(r['Sessions'])||0),0);
   const totalUsers = rows.reduce((a,r)=>a+(parseFloat(r['Users'])||0),0);
@@ -337,12 +357,12 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     `<div class="metric"><div class="label">Total Users</div><div class="val">${fmtNum(totalUsers)}</div>${deltaSpanLocal(totalUsers,cmpUsers)}</div>`;
 
   // build daily series for sessions
-  function buildSessionSeries(rows){
+  function buildSessionSeries(rows, anchorStart){
     const byDay={}, byDayUsers={}, dayToDate={};
     const dated = rows.map(r=>({date:parseMYT(r['Date cleaned (DD/MM/YYYY)']), sessions:parseFloat(r['Sessions'])||0, users:parseFloat(r['Users'])||0})).filter(r=>!isNaN(r.date));
     dated.sort((a,b)=>a.date-b.date);
-    if(!dated.length) return {byDay:{}, byDayUsers:{}, lastDayWithData:0, start:new Date(), dayToDate:{}};
-    const start = dated[0].date;
+    if(!dated.length) return {byDay:{}, byDayUsers:{}, lastDayWithData:0, start:anchorStart||new Date(), dayToDate:{}};
+    const start = anchorStart || dated[0].date;
     let last=0;
     dated.forEach(r=>{
       const d=Math.round((r.date-start)/(1000*60*60*24));
@@ -382,9 +402,11 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     return result;
   }
 
-  const s1 = buildSessionSeries(rows);
-  const s2 = cmpRows ? buildSessionSeries(cmpRows) : null;
-  const maxDay = Math.max(1, s1.lastDayWithData, s2?s2.lastDayWithData:0);
+  const win1 = unifiedWindow(brandKey, year, country);
+  const win2 = compareYear ? unifiedWindow(brandKey, compareYear, country) : null;
+  const s1 = buildSessionSeries(rows, win1?win1.start:null);
+  const s2 = cmpRows ? buildSessionSeries(cmpRows, win2?win2.start:null) : null;
+  const maxDay = Math.max(1, win1?win1.maxDay:0, win2?win2.maxDay:0, s1.lastDayWithData, s2?s2.lastDayWithData:0);
   const labels = Array.from({length:maxDay+1},(_,i)=>'Day '+i);
   const years = [year, compareYear].filter(Boolean);
   const series = [s1, s2].filter(Boolean);
@@ -476,10 +498,9 @@ function renderTrafficSection(brandKey, rows, cmpRows, tsr1Rows, year, compareYe
     return parseFloat(((tickets/users)*100).toFixed(2));
   }) : null;
 
-  // trim x-axis to first day with CR data in current year only
-  // (compare year may have data at different day offsets)
-  const firstCrDay = crData.findIndex(v=>v!==null);
-  const trimFrom = firstCrDay > 0 ? firstCrDay : 0;
+  // unified axis: keep CR on the same Day 0 as the other charts (no trim)
+  const firstCrDay = 0;
+  const trimFrom = 0;
   const crLabels = labels.slice(trimFrom);
   const crDataTrimmed = crData.slice(trimFrom);
   const cmpCrDataTrimmed = cmpCrData ? cmpCrData.slice(trimFrom) : null;
@@ -1777,7 +1798,7 @@ function renderSRBody(brandKey){
   try{ renderAudienceProfile(brandKey, viewRows, cmpRows, year, compareYear); }catch(e){ console.error('renderAudienceProfile',e.message, e.stack); }
   try{ renderCumChart(brandKey, rows, year, compareYear, document.getElementById('catFilter1_'+brandKey).value, country, compareCountry, document.getElementById('ticketFilter1_'+brandKey).value); }catch(e){ console.error('renderCumChart',e.message, e.stack); }
   try{ renderDailyDeltaChart(brandKey, rows, year, compareYear, document.getElementById('catFilter2_'+brandKey).value, country, compareCountry, document.getElementById('ticketFilter2_'+brandKey).value); }catch(e){ console.error('renderDailyDeltaChart',e.message, e.stack); }
-  if(showSettings) try{ renderPaceChart(brandKey, viewRows, year, settings); }catch(e){ console.error('renderPaceChart',e.message, e.stack); }
+  if(showSettings) try{ renderPaceChart(brandKey, viewRows, year, settings, country); }catch(e){ console.error('renderPaceChart',e.message, e.stack); }
   try{ renderRevChart(brandKey, rows, year, compareYear, document.getElementById('catFilterRev_'+brandKey).value, country, compareCountry); }catch(e){ console.error('renderRevChart',e.message, e.stack); }
   // load campaign notes for this year+country
   const notesKey = `notes_${country}_${year}`;
@@ -2545,7 +2566,7 @@ function fmtMYTTime(){
 }
 function dayKey(dateStr){ return parseMYT(dateStr); }
 
-function buildDailySeries(rows, year, cat, ticketMode, brandKey, settings){
+function buildDailySeries(rows, year, cat, ticketMode, brandKey, settings, anchorStart){
   ticketMode = ticketMode || 'reg';
   const yr = filteredByCategory(rows, cat); // rows already filtered by year+country
   const isOne = v => v===1 || v==='1' || v===true || Number(v)===1;
@@ -2574,7 +2595,7 @@ function buildDailySeries(rows, year, cat, ticketMode, brandKey, settings){
 
   const dated = yr.map(r=>({date:dayKey(r['Date cleaned (DD/MM/YYYY)']), tickets:ticketsForRow(r)})).filter(r=>!isNaN(r.date));
   dated.sort((a,b)=>a.date-b.date);
-  const start = dated.length?dated[0].date:new Date();
+  const start = anchorStart || (dated.length?dated[0].date:new Date());
   const byDay = {};
   const dayToDate = {};
   let lastDayWithData = 0;
@@ -2686,14 +2707,14 @@ function chartOptsWithAnnotations(annotations){
   };
 }
 
-function buildDailyRevSeries(rows, cat){
+function buildDailyRevSeries(rows, cat, anchorStart){
   const yr = filteredByCategory(rows, cat);
   const dated = yr.map(r=>({
     date: parseMYT(r['Date cleaned (DD/MM/YYYY)']),
     rev: (parseFloat(r['Registration Rev'])||0) + (parseFloat(r['Products Rev'])||0)
   })).filter(r=>!isNaN(r.date));
   dated.sort((a,b)=>a.date-b.date);
-  const start = dated.length ? dated[0].date : new Date();
+  const start = anchorStart || (dated.length ? dated[0].date : new Date());
   const byDay = {};
   const dayToDate = {};
   let lastDayWithData = 0;
@@ -2712,9 +2733,10 @@ function renderRevChart(brandKey, rows, year, compareYear, cat, country, compare
   document.getElementById('legendRev_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''}</span>`).join('');
   const seriesList = years.map((y,i)=>{
     const filtered = rows.filter(r=>getEventYear(r)===String(y)&&(countries[i]==='all'||r['Country']===countries[i]));
-    return buildDailyRevSeries(filtered, cat);
+    const win = unifiedWindow(brandKey, y, countries[i]);
+    return buildDailyRevSeries(filtered, cat, win?win.start:null);
   });
-  const maxDay = Math.max(1, ...seriesList.map(s=>s.lastDayWithData));
+  const maxDay = Math.max(1, unifiedAxisMaxDay(brandKey, years, countries), ...seriesList.map(s=>s.lastDayWithData));
   const labels = Array.from({length:maxDay+1}, (_,i)=>"Day "+i);
   const datasets = seriesList.map((s,i)=>{
     let cum = 0;
@@ -2761,9 +2783,10 @@ function renderCumChart(brandKey, rows, year, compareYear, cat, country, compare
   document.getElementById('legendDaily1_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''}</span>`).join('');
   const seriesList = years.map((y,i)=>{
     const filtered = rows.filter(r=>getEventYear(r)===String(y)&&(countries[i]==='all'||r['Country']===countries[i]));
-    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings);
+    const win = unifiedWindow(brandKey, y, countries[i]);
+    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings, win?win.start:null);
   });
-  const maxDay = Math.max(1, ...seriesList.map(s=>s.lastDayWithData));
+  const maxDay = Math.max(1, unifiedAxisMaxDay(brandKey, years, countries), ...seriesList.map(s=>s.lastDayWithData));
   const labels = Array.from({length:maxDay+1}, (_,i)=>"Day "+i);
   const datasets = seriesList.map((s,i)=>{
     let cum=0;
@@ -2803,9 +2826,10 @@ function renderDailyDeltaChart(brandKey, rows, year, compareYear, cat, country, 
   document.getElementById('legendDaily2_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''}</span>`).join('');
   const seriesList = years.map((y,i)=>{
     const filtered = rows.filter(r=>getEventYear(r)===String(y)&&(countries[i]==='all'||r['Country']===countries[i]));
-    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings);
+    const win = unifiedWindow(brandKey, y, countries[i]);
+    return buildDailySeries(filtered, y, cat, ticketMode, brandKey, settings, win?win.start:null);
   });
-  const maxDay2 = Math.max(1, ...seriesList.map(s=>s.lastDayWithData));
+  const maxDay2 = Math.max(1, unifiedAxisMaxDay(brandKey, years, countries), ...seriesList.map(s=>s.lastDayWithData));
   const labels2 = Array.from({length:maxDay2+1}, (_,i)=>"Day "+i);
   const datasets2 = seriesList.map((s,i)=>({
     label:String(years[i]),
@@ -2831,11 +2855,12 @@ function renderDailyDeltaChart(brandKey, rows, year, compareYear, cat, country, 
   chartInstances[id2] = new Chart(document.getElementById(id2), {type:'line', data:{labels:labels2,datasets:datasets2}, options:ddOpts});
 }
 
-function renderPaceChart(brandKey, rows, year, settings){
+function renderPaceChart(brandKey, rows, year, settings, country){
   const yr = rows.filter(r=>getEventYear(r)===String(year));
   const dated = yr.map(r=>({date:dayKey(r['Date cleaned (DD/MM/YYYY)']), tickets:parseInt(r['Ticket Count'])||0})).filter(r=>!isNaN(r.date));
   dated.sort((a,b)=>a.date-b.date);
-  const start = dated.length?dated[0].date:new Date();
+  const win = unifiedWindow(brandKey, year, country||'all');
+  const start = win ? win.start : (dated.length?dated[0].date:new Date());
   const byDay = {};
   const dayToDate = {};
   let lastDayWithData = 0;
@@ -2854,7 +2879,7 @@ function renderPaceChart(brandKey, rows, year, settings){
     .map(p=>({...p, startOffset:Math.round((parseMYT(p.start)-start)/(1000*60*60*24)), endOffset:Math.round((parseMYT(p.end)-start)/(1000*60*60*24))}))
     .sort((a,b)=>a.startOffset-b.startOffset);
 
-  const maxDay = Math.max(1, lastDayWithData, ...phases.map(p=>p.endOffset));
+  const maxDay = Math.max(1, lastDayWithData, win?win.maxDay:0, ...phases.map(p=>p.endOffset));
 
   let cum = 0;
   const actual = [];
