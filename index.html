@@ -95,14 +95,15 @@
   #saveStatusTSR, #saveStatusRL{font-size:12px;color:var(--good);}
   .req-note{font-size:11.5px; color:var(--accent); margin:2px 0 10px;}
 
-  .phase-def-row{display:grid; grid-template-columns:1.2fr 1fr 1fr 0.8fr auto; gap:8px; align-items:end; margin-bottom:8px; padding-bottom:12px; border-bottom:1px solid var(--line);}
+  .phase-def-row{display:grid; grid-template-columns:1.2fr 1fr 1fr 0.8fr 0.8fr auto; gap:8px; align-items:end; margin-bottom:8px; padding-bottom:12px; border-bottom:1px solid var(--line);}
   .phase-def-row input{font-size:13px;}
   @media (max-width:680px){
-    .phase-def-row{grid-template-columns:1fr 1fr; grid-template-areas:"name name" "start end" "target target" "remove remove"; margin-bottom:14px; padding-bottom:14px;}
+    .phase-def-row{grid-template-columns:1fr 1fr; grid-template-areas:"name name" "start end" "target price" "remove remove"; margin-bottom:14px; padding-bottom:14px;}
     .phase-def-row > div:nth-child(1){grid-area:name;}
     .phase-def-row > div:nth-child(2){grid-area:start;}
     .phase-def-row > div:nth-child(3){grid-area:end;}
     .phase-def-row > div:nth-child(4){grid-area:target;}
+    .phase-def-row > div:nth-child(5){grid-area:price;}
     .phase-def-row .rm-phase{grid-area:remove; width:100%;}
   }
   .rm-phase{background:var(--panel-2); color:var(--bad); border:1px solid var(--line); padding:7px 10px; font-size:12px;}
@@ -1489,7 +1490,7 @@ function esSectionHTML(brandKey, label){
       <label style="margin-top:6px;">Phase definitions — name, date range, and ticket target</label>
       <div class="req-note">Each phase needs a ticket target. Settings save against the country + event year selected above.</div>
       <div id="esPhaseDefRows_${brandKey}"></div>
-      <button class="secondary" type="button" onclick="addESPhaseRow('${brandKey}','','','','')">+ Add phase</button>
+      <button class="secondary" type="button" onclick="addESPhaseRow('${brandKey}','','','','','')">+ Add phase</button>
       <div class="save-row">
         <button onclick="saveESSettings('${brandKey}')">Save settings</button>
         <span id="esSaveStatus_${brandKey}"></span>
@@ -1510,7 +1511,7 @@ function populateESFilters(brandKey){
   populateCountryFilter(cf, rows);
 }
 
-function addESPhaseRow(brandKey, name, start, end, target){
+function addESPhaseRow(brandKey, name, start, end, target, price){
   const container = document.getElementById('esPhaseDefRows_'+brandKey);
   if(!container) return;
   const row = document.createElement('div');
@@ -1520,6 +1521,7 @@ function addESPhaseRow(brandKey, name, start, end, target){
     <div><label>Start date</label><input type="date" class="pd-start" value="${start}"/></div>
     <div><label>End date</label><input type="date" class="pd-end" value="${end}"/></div>
     <div><label>Ticket target</label><input type="number" class="pd-target" value="${target}" placeholder="e.g. 2000"/></div>
+    <div><label>Price</label><input type="number" class="pd-price" value="${price!==undefined&&price!==null?price:''}" placeholder="e.g. 199" step="any" min="0"/></div>
     <button type="button" class="rm-phase" onclick="this.parentElement.remove()">Remove</button>
   `;
   container.appendChild(row);
@@ -1534,8 +1536,8 @@ function loadESPhaseRows(brandKey){
   const phaseKey = `phases_${country}_${year}`;
   const phases = all[phaseKey] !== undefined ? all[phaseKey] : [];
   container.innerHTML = '';
-  if(phases.length){ phases.forEach(p=>addESPhaseRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||'')); }
-  else { addESPhaseRow(brandKey, '', '', '', ''); }
+  if(phases.length){ phases.forEach(p=>addESPhaseRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||'', (p.price!==undefined&&p.price!==null)?p.price:'')); }
+  else { addESPhaseRow(brandKey, '', '', '', '', ''); }
   if(brandKey==='tsr'){ const el=document.getElementById('esMembersPerTeam_tsr'); if(el) el.value = all.membersPerTeam || ''; }
   if(brandKey==='rl'){ const d=document.getElementById('esDoublesMembers_rl'); if(d) d.value = all.doublesMembers || ''; const t=document.getElementById('esTeamRelayMembers_rl'); if(t) t.value = all.teamRelayMembers || ''; }
 }
@@ -1546,13 +1548,16 @@ async function saveESSettings(brandKey){
   const year = document.getElementById('esYearFilter_'+brandKey).value;
   const country = document.getElementById('esCountryFilter_'+brandKey).value;
   const phaseKey = `phases_${country}_${year}`;
+  const requireTarget = isLatestYear(brandKey, year); // past years can be saved price-only (for Price Intelligence); no target/date needed
   const phases = []; let missingTarget=false;
   document.querySelectorAll('#esPhaseDefRows_'+brandKey+' .phase-def-row').forEach(row=>{
     const name=row.querySelector('.pd-name').value;
     const start=row.querySelector('.pd-start').value;
     const end=row.querySelector('.pd-end').value;
     const target=row.querySelector('.pd-target').value;
-    if(name){ if(!target) missingTarget=true; phases.push({name,start,end,target}); }
+    const priceEl=row.querySelector('.pd-price');
+    const price=priceEl?priceEl.value:'';
+    if(name){ if(requireTarget && !target) missingTarget=true; phases.push({name,start,end,target,price}); }
   });
   if(missingTarget){ setStatus('Every phase needs a ticket target', false); return; }
   const existing = brandData[brandKey].settings || {};
