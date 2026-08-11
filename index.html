@@ -97,6 +97,11 @@
 
   .phase-def-row{display:grid; grid-template-columns:1.2fr 1fr 1fr 0.8fr auto; gap:8px; align-items:end; margin-bottom:8px; padding-bottom:12px; border-bottom:1px solid var(--line);}
   .phase-def-row input{font-size:13px;}
+  .es-phase-scroll{overflow-x:auto; padding-bottom:6px;}
+  .es-phase-row{display:grid; gap:8px; align-items:end; margin-bottom:8px; padding-bottom:12px; border-bottom:1px solid var(--line); min-width:720px;}
+  .es-phase-row input{width:100%; font-size:13px;}
+  .es-phase-row label{font-size:11px; color:var(--text-dim);}
+  .es-phase-row .rm-phase{white-space:nowrap;}
   .price-head, .price-def-row{display:grid; gap:8px; align-items:center; margin-bottom:6px;}
   .price-head{font-size:11px; color:var(--text-dim); padding-bottom:2px;}
   .price-def-row input{width:100%; font-size:13px;}
@@ -1447,6 +1452,7 @@ function renderPhaseDefRows(brandKey){
 
 /* ===================== EVENT SETTINGS (consolidated page) ===================== */
 let _esBuilt = false, _esHadData = false;
+const _esCats = {};
 const ES_BRANDS = [['tsr','The Sky Race'],['rl','REDLINE'],['tmr','The Music Run'],['dua','DUA']];
 
 function ensureEventSettings(){
@@ -1458,11 +1464,8 @@ function ensureEventSettings(){
   if(!host) return;
   host.innerHTML =
     `<h2 style="margin-top:24px;">Event Settings</h2>
-     <div class="sub">Phase definitions and targets for every brand — saved by brand · country · event year. New countries or event years appear automatically once they show up in the data; new ones stay empty until you fill them in and save.</div>`
-    + ES_BRANDS.map(([k,label])=>esSectionHTML(k,label)).join('')
-    + `<h2 style="margin-top:32px;">Prices</h2>
-       <div class="sub">Ticket price per phase, per category — for the Price Intelligence page. Categories are detected automatically from your data. No dates or targets needed; enter prices (0 is fine) and save. Kept separate from Event Settings and not tied back to the ticket data.</div>`
-    + ES_BRANDS.map(([k,label])=>priceSectionHTML(k,label)).join('');
+     <div class="sub">Phase definitions, targets and per-category prices for every brand — saved by brand · country · event year. Price columns are detected automatically from your data. New countries or event years appear automatically once they show up in the data; new ones stay empty until you fill them in and save.</div>`
+    + ES_BRANDS.map(([k,label])=>esSectionHTML(k,label)).join('');
   ES_BRANDS.forEach(([k])=>{
     const hasData = brandData[k] && brandData[k].rows && brandData[k].rows.length;
     if(!hasData) return;
@@ -1471,12 +1474,6 @@ function ensureEventSettings(){
     if(yf) yf.addEventListener('change', ()=>loadESPhaseRows(k));
     if(cf) cf.addEventListener('change', ()=>loadESPhaseRows(k));
     loadESPhaseRows(k);
-    // prices section (per-category)
-    populatePRFilters(k);
-    const pyf = document.getElementById('prYearFilter_'+k), pcf = document.getElementById('prCountryFilter_'+k);
-    if(pyf) pyf.addEventListener('change', ()=>loadPRRows(k));
-    if(pcf) pcf.addEventListener('change', ()=>loadPRRows(k));
-    loadPRRows(k);
   });
   _esHadData = anyData;
   _esBuilt = true;
@@ -1501,10 +1498,10 @@ function esSectionHTML(brandKey, label){
         <div style="display:flex; flex-direction:column; gap:4px;"><label style="margin:0; font-size:12px; color:var(--text-dim);">Country</label><select id="esCountryFilter_${brandKey}"></select></div>
       </div>
       <div class="target-grid">${teamInputs}</div>
-      <label style="margin-top:6px;">Phase definitions — name, date range, and ticket target</label>
-      <div class="req-note">Each phase needs a ticket target. Settings save against the country + event year selected above.</div>
-      <div id="esPhaseDefRows_${brandKey}"></div>
-      <button class="secondary" type="button" onclick="addESPhaseRow('${brandKey}','','','','')">+ Add phase</button>
+      <label style="margin-top:6px;">Phase definitions — name, date range, ticket target, and price per category</label>
+      <div class="req-note">On the on-going year each phase needs a ticket target; past years can be saved with just a name and prices. Price columns are detected from your data. Saved against the country + event year above.</div>
+      <div class="es-phase-scroll"><div id="esPhaseDefRows_${brandKey}"></div></div>
+      <button class="secondary" type="button" onclick="addESPhaseRow('${brandKey}')">+ Add phase</button>
       <div class="save-row">
         <button onclick="saveESSettings('${brandKey}')">Save settings</button>
         <span id="esSaveStatus_${brandKey}"></span>
@@ -1525,16 +1522,20 @@ function populateESFilters(brandKey){
   populateCountryFilter(cf, rows);
 }
 
-function addESPhaseRow(brandKey, name, start, end, target){
+function addESPhaseRow(brandKey, name, start, end, target, prices){
   const container = document.getElementById('esPhaseDefRows_'+brandKey);
   if(!container) return;
+  const cats = _esCats[brandKey] || [];
   const row = document.createElement('div');
-  row.className = 'phase-def-row';
+  row.className = 'es-phase-row';
+  row.style.gridTemplateColumns = `1.4fr 1.1fr 1.1fr 0.8fr repeat(${cats.length}, 0.9fr) 74px`;
+  const priceCells = cats.map(c=>`<div><label>${c} price</label><input type="number" class="pd-price" data-cat="${(c+'').replace(/"/g,'&quot;')}" value="${prices&&prices[c]!==undefined&&prices[c]!==null?prices[c]:''}" placeholder="0" step="any" min="0"/></div>`).join('');
   row.innerHTML = `
-    <div><label>Phase name</label><input type="text" class="pd-name" value="${name}" placeholder="e.g. Early Bird"/></div>
-    <div><label>Start date</label><input type="date" class="pd-start" value="${start}"/></div>
-    <div><label>End date</label><input type="date" class="pd-end" value="${end}"/></div>
-    <div><label>Ticket target</label><input type="number" class="pd-target" value="${target}" placeholder="e.g. 2000"/></div>
+    <div><label>Phase name</label><input type="text" class="pd-name" value="${name||''}" placeholder="e.g. Early Bird"/></div>
+    <div><label>Start date</label><input type="date" class="pd-start" value="${start||''}"/></div>
+    <div><label>End date</label><input type="date" class="pd-end" value="${end||''}"/></div>
+    <div><label>Ticket target</label><input type="number" class="pd-target" value="${target||''}" placeholder="e.g. 2000"/></div>
+    ${priceCells}
     <button type="button" class="rm-phase" onclick="this.parentElement.remove()">Remove</button>
   `;
   container.appendChild(row);
@@ -1545,12 +1546,24 @@ function loadESPhaseRows(brandKey){
   if(!container) return;
   const year = document.getElementById('esYearFilter_'+brandKey).value;
   const country = document.getElementById('esCountryFilter_'+brandKey).value;
+  _esCats[brandKey] = detectCategories(brandKey, country, year);
   const all = brandData[brandKey].settings || {};
   const phaseKey = `phases_${country}_${year}`;
   const phases = all[phaseKey] !== undefined ? all[phaseKey] : [];
+  // safety net: merge in any prices saved by the brief standalone Prices version
+  const legacy = all['prices_'+country+'_'+year] || [];
+  const legacyByName = {}; legacy.forEach(p=>{ if(p.name) legacyByName[p.name] = p.prices||{}; });
   container.innerHTML = '';
-  if(phases.length){ phases.forEach(p=>addESPhaseRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||'')); }
-  else { addESPhaseRow(brandKey, '', '', '', ''); }
+  if(phases.length){
+    phases.forEach(p=>{
+      const prices = (p.prices && Object.keys(p.prices).length) ? p.prices : (legacyByName[p.name]||{});
+      addESPhaseRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||'', prices);
+    });
+  } else if(legacy.length){
+    legacy.forEach(p=>addESPhaseRow(brandKey, p.name||'', '', '', '', p.prices||{}));
+  } else {
+    addESPhaseRow(brandKey, '', '', '', '', {});
+  }
   if(brandKey==='tsr'){ const el=document.getElementById('esMembersPerTeam_tsr'); if(el) el.value = all.membersPerTeam || ''; }
   if(brandKey==='rl'){ const d=document.getElementById('esDoublesMembers_rl'); if(d) d.value = all.doublesMembers || ''; const t=document.getElementById('esTeamRelayMembers_rl'); if(t) t.value = all.teamRelayMembers || ''; }
 }
@@ -1563,12 +1576,14 @@ async function saveESSettings(brandKey){
   const phaseKey = `phases_${country}_${year}`;
   const requireTarget = isLatestYear(brandKey, year); // past years can be saved price-only (for Price Intelligence); no target/date needed
   const phases = []; let missingTarget=false;
-  document.querySelectorAll('#esPhaseDefRows_'+brandKey+' .phase-def-row').forEach(row=>{
+  document.querySelectorAll('#esPhaseDefRows_'+brandKey+' .es-phase-row').forEach(row=>{
     const name=row.querySelector('.pd-name').value;
     const start=row.querySelector('.pd-start').value;
     const end=row.querySelector('.pd-end').value;
     const target=row.querySelector('.pd-target').value;
-    if(name){ if(requireTarget && !target) missingTarget=true; phases.push({name,start,end,target}); }
+    const prices={};
+    row.querySelectorAll('.pd-price').forEach(inp=>{ if(inp.value!=='') prices[inp.dataset.cat]=inp.value; });
+    if(name){ if(requireTarget && !target) missingTarget=true; phases.push({name,start,end,target,prices}); }
   });
   if(missingTarget){ setStatus('Every phase needs a ticket target', false); return; }
   const existing = brandData[brandKey].settings || {};
