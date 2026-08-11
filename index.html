@@ -95,15 +95,20 @@
   #saveStatusTSR, #saveStatusRL{font-size:12px;color:var(--good);}
   .req-note{font-size:11.5px; color:var(--accent); margin:2px 0 10px;}
 
-  .phase-def-row{display:grid; grid-template-columns:1.2fr 1fr 1fr 0.8fr 0.8fr auto; gap:8px; align-items:end; margin-bottom:8px; padding-bottom:12px; border-bottom:1px solid var(--line);}
+  .phase-def-row{display:grid; grid-template-columns:1.2fr 1fr 1fr 0.8fr auto; gap:8px; align-items:end; margin-bottom:8px; padding-bottom:12px; border-bottom:1px solid var(--line);}
   .phase-def-row input{font-size:13px;}
+  .price-head, .price-def-row{display:grid; gap:8px; align-items:center; margin-bottom:6px;}
+  .price-head{font-size:11px; color:var(--text-dim); padding-bottom:2px;}
+  .price-def-row input{width:100%; font-size:13px;}
+  .price-scroll{overflow-x:auto; padding-bottom:4px;}
+  .price-scroll .price-head, .price-scroll .price-def-row{min-width:480px;}
+  .price-def-row .rm-phase{padding:6px 8px;}
   @media (max-width:680px){
-    .phase-def-row{grid-template-columns:1fr 1fr; grid-template-areas:"name name" "start end" "target price" "remove remove"; margin-bottom:14px; padding-bottom:14px;}
+    .phase-def-row{grid-template-columns:1fr 1fr; grid-template-areas:"name name" "start end" "target target" "remove remove"; margin-bottom:14px; padding-bottom:14px;}
     .phase-def-row > div:nth-child(1){grid-area:name;}
     .phase-def-row > div:nth-child(2){grid-area:start;}
     .phase-def-row > div:nth-child(3){grid-area:end;}
     .phase-def-row > div:nth-child(4){grid-area:target;}
-    .phase-def-row > div:nth-child(5){grid-area:price;}
     .phase-def-row .rm-phase{grid-area:remove; width:100%;}
   }
   .rm-phase{background:var(--panel-2); color:var(--bad); border:1px solid var(--line); padding:7px 10px; font-size:12px;}
@@ -141,7 +146,7 @@
         </div>
       </div>
       <button class="nav-btn" id="navPrice" onclick="goPage('price')">Price Intelligence</button>
-      <button class="nav-btn" id="navSettings" onclick="goPage('settings')">Event Settings</button>
+      <button class="nav-btn" id="navSettings" onclick="goPage('settings')">Settings</button>
     </div>
     <button class="hamburger" id="hamburgerBtn" onclick="toggleMobileMenu()" aria-label="Menu">☰</button>
     <div class="nav-mobile-menu" id="mobileMenu">
@@ -152,7 +157,7 @@
       <button class="nav-btn" onclick="goPage('tmr');toggleMobileMenu()">The Music Run</button>
       <button class="nav-btn" onclick="goPage('dua');toggleMobileMenu()">DUA</button>
       <button class="nav-btn" id="navPriceM" onclick="goPage('price');toggleMobileMenu()">Price Intelligence</button>
-      <button class="nav-btn" id="navSettingsM" onclick="goPage('settings');toggleMobileMenu()">Event Settings</button>
+      <button class="nav-btn" id="navSettingsM" onclick="goPage('settings');toggleMobileMenu()">Settings</button>
     </div>
   </div>
 
@@ -1454,7 +1459,10 @@ function ensureEventSettings(){
   host.innerHTML =
     `<h2 style="margin-top:24px;">Event Settings</h2>
      <div class="sub">Phase definitions and targets for every brand — saved by brand · country · event year. New countries or event years appear automatically once they show up in the data; new ones stay empty until you fill them in and save.</div>`
-    + ES_BRANDS.map(([k,label])=>esSectionHTML(k,label)).join('');
+    + ES_BRANDS.map(([k,label])=>esSectionHTML(k,label)).join('')
+    + `<h2 style="margin-top:32px;">Prices</h2>
+       <div class="sub">Ticket price per phase, per category — for the Price Intelligence page. Categories are detected automatically from your data. No dates or targets needed; enter prices (0 is fine) and save. Kept separate from Event Settings and not tied back to the ticket data.</div>`
+    + ES_BRANDS.map(([k,label])=>priceSectionHTML(k,label)).join('');
   ES_BRANDS.forEach(([k])=>{
     const hasData = brandData[k] && brandData[k].rows && brandData[k].rows.length;
     if(!hasData) return;
@@ -1463,6 +1471,12 @@ function ensureEventSettings(){
     if(yf) yf.addEventListener('change', ()=>loadESPhaseRows(k));
     if(cf) cf.addEventListener('change', ()=>loadESPhaseRows(k));
     loadESPhaseRows(k);
+    // prices section (per-category)
+    populatePRFilters(k);
+    const pyf = document.getElementById('prYearFilter_'+k), pcf = document.getElementById('prCountryFilter_'+k);
+    if(pyf) pyf.addEventListener('change', ()=>loadPRRows(k));
+    if(pcf) pcf.addEventListener('change', ()=>loadPRRows(k));
+    loadPRRows(k);
   });
   _esHadData = anyData;
   _esBuilt = true;
@@ -1490,7 +1504,7 @@ function esSectionHTML(brandKey, label){
       <label style="margin-top:6px;">Phase definitions — name, date range, and ticket target</label>
       <div class="req-note">Each phase needs a ticket target. Settings save against the country + event year selected above.</div>
       <div id="esPhaseDefRows_${brandKey}"></div>
-      <button class="secondary" type="button" onclick="addESPhaseRow('${brandKey}','','','','','')">+ Add phase</button>
+      <button class="secondary" type="button" onclick="addESPhaseRow('${brandKey}','','','','')">+ Add phase</button>
       <div class="save-row">
         <button onclick="saveESSettings('${brandKey}')">Save settings</button>
         <span id="esSaveStatus_${brandKey}"></span>
@@ -1511,7 +1525,7 @@ function populateESFilters(brandKey){
   populateCountryFilter(cf, rows);
 }
 
-function addESPhaseRow(brandKey, name, start, end, target, price){
+function addESPhaseRow(brandKey, name, start, end, target){
   const container = document.getElementById('esPhaseDefRows_'+brandKey);
   if(!container) return;
   const row = document.createElement('div');
@@ -1521,7 +1535,6 @@ function addESPhaseRow(brandKey, name, start, end, target, price){
     <div><label>Start date</label><input type="date" class="pd-start" value="${start}"/></div>
     <div><label>End date</label><input type="date" class="pd-end" value="${end}"/></div>
     <div><label>Ticket target</label><input type="number" class="pd-target" value="${target}" placeholder="e.g. 2000"/></div>
-    <div><label>Price</label><input type="number" class="pd-price" value="${price!==undefined&&price!==null?price:''}" placeholder="e.g. 199" step="any" min="0"/></div>
     <button type="button" class="rm-phase" onclick="this.parentElement.remove()">Remove</button>
   `;
   container.appendChild(row);
@@ -1536,8 +1549,8 @@ function loadESPhaseRows(brandKey){
   const phaseKey = `phases_${country}_${year}`;
   const phases = all[phaseKey] !== undefined ? all[phaseKey] : [];
   container.innerHTML = '';
-  if(phases.length){ phases.forEach(p=>addESPhaseRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||'', (p.price!==undefined&&p.price!==null)?p.price:'')); }
-  else { addESPhaseRow(brandKey, '', '', '', '', ''); }
+  if(phases.length){ phases.forEach(p=>addESPhaseRow(brandKey, p.name||'', p.start||'', p.end||'', p.target||'')); }
+  else { addESPhaseRow(brandKey, '', '', '', ''); }
   if(brandKey==='tsr'){ const el=document.getElementById('esMembersPerTeam_tsr'); if(el) el.value = all.membersPerTeam || ''; }
   if(brandKey==='rl'){ const d=document.getElementById('esDoublesMembers_rl'); if(d) d.value = all.doublesMembers || ''; const t=document.getElementById('esTeamRelayMembers_rl'); if(t) t.value = all.teamRelayMembers || ''; }
 }
@@ -1555,9 +1568,7 @@ async function saveESSettings(brandKey){
     const start=row.querySelector('.pd-start').value;
     const end=row.querySelector('.pd-end').value;
     const target=row.querySelector('.pd-target').value;
-    const priceEl=row.querySelector('.pd-price');
-    const price=priceEl?priceEl.value:'';
-    if(name){ if(requireTarget && !target) missingTarget=true; phases.push({name,start,end,target,price}); }
+    if(name){ if(requireTarget && !target) missingTarget=true; phases.push({name,start,end,target}); }
   });
   if(missingTarget){ setStatus('Every phase needs a ticket target', false); return; }
   const existing = brandData[brandKey].settings || {};
@@ -1570,6 +1581,114 @@ async function saveESSettings(brandKey){
     setStatus(`Saved ✓ (${country} ${year})`, true);
     if(pageInitialized[brandKey]){ try{ renderSRBody(brandKey); }catch(e){ console.error('renderSRBody after save', e); } }
     try{ renderOverview(); }catch(e){ console.error('renderOverview after save', e); }
+  }catch(e){ setStatus('Failed to save', false); }
+}
+
+/* ===================== PRICES (per-category, for Price Intelligence) ===================== */
+const _prCats = {};
+
+function priceSectionHTML(brandKey, label){
+  const hasData = brandData[brandKey] && brandData[brandKey].rows && brandData[brandKey].rows.length;
+  if(!hasData){
+    return `<details class="settings" style="margin-bottom:12px;"><summary>${label}</summary><div class="settings-body"><div class="sub">No data yet.</div></div></details>`;
+  }
+  return `
+  <details class="settings" style="margin-bottom:12px;">
+    <summary>${label}</summary>
+    <div class="settings-body">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; max-width:420px;">
+        <div style="display:flex; flex-direction:column; gap:4px;"><label style="margin:0; font-size:12px; color:var(--text-dim);">Event year</label><select id="prYearFilter_${brandKey}"></select></div>
+        <div style="display:flex; flex-direction:column; gap:4px;"><label style="margin:0; font-size:12px; color:var(--text-dim);">Country</label><select id="prCountryFilter_${brandKey}"></select></div>
+      </div>
+      <div class="price-scroll">
+        <div id="prTableHead_${brandKey}"></div>
+        <div id="prRows_${brandKey}"></div>
+      </div>
+      <button class="secondary" type="button" onclick="addPRRow('${brandKey}')">+ Add phase</button>
+      <div class="save-row">
+        <button onclick="savePRSettings('${brandKey}')">Save prices</button>
+        <span id="prSaveStatus_${brandKey}"></span>
+      </div>
+    </div>
+  </details>`;
+}
+
+function populatePRFilters(brandKey){
+  const rows = srRowsFor(brandKey);
+  const yf = document.getElementById('prYearFilter_'+brandKey);
+  const cf = document.getElementById('prCountryFilter_'+brandKey);
+  if(!yf || !cf) return;
+  const years = [...new Set(rows.map(r=>getEventYear(r)))].sort();
+  const prevY = yf.value;
+  yf.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  yf.value = prevY && years.includes(prevY) ? prevY : years[years.length-1];
+  populateCountryFilter(cf, rows);
+}
+
+function detectCategories(brandKey, country, year){
+  const rows = (brandData[brandKey].rows||[]).filter(r=>getEventYear(r)===String(year) && (country==='all'||r['Country']===country));
+  return [...new Set(rows.map(r=>r['Category']).filter(Boolean))].sort();
+}
+
+function prGridCols(brandKey){
+  const n = (_prCats[brandKey]||[]).length || 1;
+  return `grid-template-columns:1.6fr repeat(${n}, 1fr) 34px;`;
+}
+
+function renderPRHeader(brandKey){
+  const cats = _prCats[brandKey] || [];
+  const head = document.getElementById('prTableHead_'+brandKey);
+  if(!head) return;
+  head.className = 'price-head';
+  head.style.cssText = 'display:grid; '+prGridCols(brandKey)+' gap:8px;';
+  head.innerHTML = `<div>Phase</div>` + cats.map(c=>`<div>${c}</div>`).join('') + `<div></div>`;
+}
+
+function addPRRow(brandKey, name, prices){
+  const cats = _prCats[brandKey] || [];
+  const container = document.getElementById('prRows_'+brandKey);
+  if(!container) return;
+  const row = document.createElement('div');
+  row.className = 'price-def-row';
+  row.style.cssText = 'display:grid; '+prGridCols(brandKey)+' gap:8px; align-items:center;';
+  const priceCells = cats.map(c=>`<div><input type="number" class="pr-price" data-cat="${(c+'').replace(/"/g,'&quot;')}" value="${prices&&prices[c]!==undefined&&prices[c]!==null?prices[c]:''}" placeholder="0" step="any" min="0"/></div>`).join('');
+  row.innerHTML = `<div><input type="text" class="pr-name" value="${name||''}" placeholder="e.g. Early Bird"/></div>${priceCells}<button type="button" class="rm-phase" onclick="this.parentElement.remove()">✕</button>`;
+  container.appendChild(row);
+}
+
+function loadPRRows(brandKey){
+  const yf = document.getElementById('prYearFilter_'+brandKey), cf = document.getElementById('prCountryFilter_'+brandKey);
+  if(!yf || !cf) return;
+  const year = yf.value, country = cf.value;
+  _prCats[brandKey] = detectCategories(brandKey, country, year);
+  renderPRHeader(brandKey);
+  const all = brandData[brandKey].settings || {};
+  const saved = all['prices_'+country+'_'+year] || [];
+  const container = document.getElementById('prRows_'+brandKey);
+  container.innerHTML = '';
+  if(saved.length){ saved.forEach(p=>addPRRow(brandKey, p.name||'', p.prices||{})); }
+  else { addPRRow(brandKey, '', {}); }
+}
+
+async function savePRSettings(brandKey){
+  const statusEl = document.getElementById('prSaveStatus_'+brandKey);
+  const setStatus = (msg,ok)=>{ if(statusEl){ statusEl.textContent=msg; statusEl.style.color = ok===false ? 'var(--bad)' : 'var(--good)'; setTimeout(()=>{ if(statusEl){statusEl.textContent=''; statusEl.style.color='';} }, 3000); } };
+  const year = document.getElementById('prYearFilter_'+brandKey).value;
+  const country = document.getElementById('prCountryFilter_'+brandKey).value;
+  const list = [];
+  document.querySelectorAll('#prRows_'+brandKey+' .price-def-row').forEach(row=>{
+    const name = row.querySelector('.pr-name').value;
+    if(!name) return;
+    const prices = {};
+    row.querySelectorAll('.pr-price').forEach(inp=>{ if(inp.value!=='') prices[inp.dataset.cat] = inp.value; });
+    list.push({name, prices});
+  });
+  const existing = brandData[brandKey].settings || {};
+  const settings = {...existing, ['prices_'+country+'_'+year]: list};
+  brandData[brandKey].settings = settings;
+  try{
+    await fetch(BRANDS[brandKey].apiUrl, {method:'POST', body: JSON.stringify({type:'settings', data:settings})});
+    setStatus(`Saved ✓ (${country} ${year})`, true);
   }catch(e){ setStatus('Failed to save', false); }
 }
 
