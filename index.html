@@ -229,6 +229,10 @@ let brandData = {}; // {tsr:{rows:[...], settings:{...}}, rl:{rows:[...], settin
 let chartInstances = {}; // keyed by canvas id
 
 function fmtNum(n){ return Math.round(n).toLocaleString(); }
+// Safe min/max over large arrays — Math.min(...bigArray) overflows the argument
+// limit and throws on high-volume brands, so reduce instead. Coerces Dates to ms.
+function arrMin(a){ let m=Infinity; for(let i=0;i<a.length;i++){ const v=+a[i]; if(v<m) m=v; } return m; }
+function arrMax(a){ let m=-Infinity; for(let i=0;i<a.length;i++){ const v=+a[i]; if(v>m) m=v; } return m; }
 function getCurrency(country){
   if(!country) return 'RM';
   const c = country.toString().toLowerCase();
@@ -327,7 +331,7 @@ function unifiedWindow(brandKey, year, country){
     .map(r=>parseMYT(r['Date cleaned (DD/MM/YYYY)']));
   const times = t1.concat(t2).filter(d=>!isNaN(d)).map(d=>d.getTime());
   if(!times.length) return null;
-  const min = Math.min(...times), max = Math.max(...times);
+  const min = arrMin(times), max = arrMax(times);
   return { start:new Date(min), maxDay:Math.round((max-min)/(1000*60*60*24)) };
 }
 function unifiedAxisMaxDay(brandKey, years, countries){
@@ -341,7 +345,7 @@ function firstTicketDate(brandKey, year, country){
     .filter(r=>getEventYear(r)===String(year) && (country==='all'||r['Country']===country))
     .map(r=>parseMYT(r['Date cleaned (DD/MM/YYYY)']))
     .filter(d=>!isNaN(d)).map(d=>d.getTime());
-  return times.length ? new Date(Math.min(...times)) : null;
+  return times.length ? new Date(arrMin(times)) : null;
 }
 
 /* Aligned comparison axis.
@@ -1811,15 +1815,15 @@ function renderSRBody(brandKey){
   //  - completed year (or no settings): actual Tab 1 sales span (first sale date → last data date)
   let totalCampaignDays = null;
   const posTargetStarts = phasesWithPosTarget.map(p=>parseMYT(p.start)).filter(d=>!isNaN(d));
-  const firstPosTargetStart = posTargetStarts.length ? new Date(Math.min(...posTargetStarts)) : null;
+  const firstPosTargetStart = posTargetStarts.length ? new Date(arrMin(posTargetStarts)) : null;
   const ongoingYear = showSettings && registrationCloseEnd && !saleEnded;
   if(ongoingYear && firstPosTargetStart){
     totalCampaignDays = Math.round((registrationCloseEnd - firstPosTargetStart)/(1000*60*60*24));
   } else if(viewRows.length > 0){
     const dates = viewRows.map(r=>parseMYT(r['Date cleaned (DD/MM/YYYY)'])).filter(d=>!isNaN(d));
     if(dates.length){
-      const firstSaleDate = new Date(Math.min(...dates));
-      const endDate = new Date(Math.max(...dates)); // first sale → last available data date
+      const firstSaleDate = new Date(arrMin(dates));
+      const endDate = new Date(arrMax(dates)); // first sale → last available data date
       totalCampaignDays = Math.round((endDate - firstSaleDate)/(1000*60*60*24));
     }
   }
@@ -1829,8 +1833,8 @@ function renderSRBody(brandKey){
   if(compareYear && cmpRows && cmpRows.length > 0){
     const cmpDates = cmpRows.map(r=>parseMYT(r['Date cleaned (DD/MM/YYYY)'])).filter(d=>!isNaN(d));
     if(cmpDates.length){
-      const cmpFirst = new Date(Math.min(...cmpDates));
-      const cmpLast = new Date(Math.max(...cmpDates));
+      const cmpFirst = new Date(arrMin(cmpDates));
+      const cmpLast = new Date(arrMax(cmpDates));
       cmpCampaignDays = Math.round((cmpLast - cmpFirst)/(1000*60*60*24));
     }
   }
