@@ -303,7 +303,9 @@ async function loadAll(){
     // TSR2 supplementary data — keep last good on failure/empty
     if(brand.tsr2Url){
       let t2 = null;
-      try{ t2 = await fetchJSON(brand.tsr2Url); }catch(e){ t2 = null; }
+      for(let attempt=0; attempt<2 && (!Array.isArray(t2) || t2.length===0); attempt++){
+        try{ t2 = await fetchJSON(brand.tsr2Url); }catch(e){ t2 = null; }
+      }
       if(!Array.isArray(t2) || t2.length===0){ t2 = (prev && prev.tsr2rows) ? prev.tsr2rows : (Array.isArray(t2)?t2:[]); }
       brandData[key].tsr2rows = t2;
     }
@@ -3007,7 +3009,9 @@ function buildDailyRevSeries(rows, cat, anchorStart){
 function renderRevChart(brandKey, rows, year, compareYear, cat, country, compareCountry){
   const years = compareYear ? [year, compareYear] : [year];
   const countries = compareYear ? [country, compareCountry] : [country];
-  document.getElementById('legendRev_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''}</span>`).join('');
+  const revCur = countries.map(c=>getCurrency(c==='all' ? _currentViewCountry : c));
+  const revDual = years.length>1 && revCur[0]!==revCur[1];
+  document.getElementById('legendRev_'+brandKey).innerHTML = years.map((y,i)=>`<span><span class="dot" style="background:${PALETTE[i]}"></span>${y}${countries[i]!=='all'?' ('+countries[i]+')':''} · ${revCur[i]}</span>`).join('');
   const {anchors, displayStarts} = alignedAxis(brandKey, years, countries);
   const seriesList = years.map((y,i)=>{
     const filtered = rows.filter(r=>getEventYear(r)===String(y)&&(countries[i]==='all'||r['Country']===countries[i]));
@@ -3023,7 +3027,7 @@ function renderRevChart(brandKey, rows, year, compareYear, cat, country, compare
       if(d < displayStarts[i] || d > s.lastDayWithData){ data.push(null); }
       else { cum += (s.byDay[d]||0); data.push(cum); }
     }
-    return {label:String(years[i]), data, borderColor:PALETTE[i], backgroundColor:'transparent', borderWidth:2.5, pointRadius:0, tension:0.15, spanGaps:false};
+    return {label:String(years[i]), data, borderColor:PALETTE[i], backgroundColor:'transparent', borderWidth:2.5, pointRadius:0, tension:0.15, spanGaps:false, yAxisID: revDual ? (i===0?'yRev0':'yRev1') : 'yRev0'};
   });
   const id = 'revChart_'+brandKey;
   destroyChart(id);
@@ -3038,14 +3042,19 @@ function renderRevChart(brandKey, rows, year, compareYear, cat, country, compare
         const unique = [...new Set(dateStrs)];
         return `Day ${d}${unique.length ? ' — ' + unique.join(' / ') : ''}`;
       },
-      label: ctx=>' '+ctx.dataset.label+': '+fmtMoney(ctx.parsed.y)
+      label: ctx=>{ const c = revCur[ctx.datasetIndex] || revCur[0]; return ' '+ctx.dataset.label+': '+c+Math.round(ctx.parsed.y).toLocaleString(); }
     }
   };
   opts.scales = opts.scales || {};
-  opts.scales.y = {ticks:{color:'#8FA999', callback:v=>{ if(v>=1000000) return 'RM'+(v/1000000).toFixed(1)+'M'; if(v>=1000) return 'RM'+(v/1000).toFixed(0)+'K'; return 'RM'+v; }}, grid:{color:'rgba(143,169,153,0.15)'}};
+  delete opts.scales.y;
+  const revTick = c => (v=>{ if(v>=1000000) return c+(v/1000000).toFixed(1)+'M'; if(v>=1000) return c+(v/1000).toFixed(0)+'K'; return c+v; });
+  opts.scales.yRev0 = {position:'left', ticks:{color:revDual?PALETTE[0]:'#8FA999', callback:revTick(revCur[0])}, grid:{color:'rgba(143,169,153,0.15)'}};
+  if(revDual){
+    opts.scales.yRev0.title = {display:true, text:years[0]+' ('+revCur[0]+')', color:PALETTE[0], font:{size:10}};
+    opts.scales.yRev1 = {position:'right', ticks:{color:PALETTE[1], callback:revTick(revCur[1])}, grid:{display:false}, title:{display:true, text:years[1]+' ('+revCur[1]+')', color:PALETTE[1], font:{size:10}}};
+  }
   chartInstances[id] = new Chart(document.getElementById(id), {type:'line', data:{labels,datasets}, options:opts});
 }
-
 function destroyChart(id){
   if(chartInstances[id]){ chartInstances[id].destroy(); delete chartInstances[id]; }
 }
