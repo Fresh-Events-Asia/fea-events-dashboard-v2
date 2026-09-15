@@ -276,22 +276,36 @@ async function loadAll(){
   const brandKeys = Object.keys(BRANDS);
   await Promise.all(brandKeys.map(async key=>{
     const brand = BRANDS[key];
-    let rows = [], settings = {eventDate:null, year:null, phases:[]};
-    try{ rows = await fetchJSON(brand.apiUrl + "?action=data"); }catch(e){ rows = []; }
+    const prev = brandData[key] || null;
+    // data rows — retry once; if the fetch fails or returns empty, keep last good data (don't wipe the page)
+    let rawRows = null;
+    for(let attempt=0; attempt<2 && (!Array.isArray(rawRows) || rawRows.length===0); attempt++){
+      try{ rawRows = await fetchJSON(brand.apiUrl + "?action=data"); }catch(e){ rawRows = null; }
+    }
+    let stale = false;
+    if(!Array.isArray(rawRows) || rawRows.length===0){
+      if(prev && prev._rawRows && prev._rawRows.length){ rawRows = prev._rawRows; stale = true; }
+      else { rawRows = Array.isArray(rawRows) ? rawRows : []; }
+    }
+    // settings — keep last good on failure
+    let settings = (prev && prev.settings) ? prev.settings : {eventDate:null, year:null, phases:[]};
     try{
       const s = await fetchJSON(brand.apiUrl + "?action=getSettings");
       if(s && s.phases!==undefined) settings = s;
     }catch(e){}
-    brandData[key] = {rows, settings};
+    brandData[key] = {rows: rawRows, settings, _rawRows: rawRows, _stale: stale};
     // REDLINE: Spectator category is excluded from all tickets/revenue/metrics/tables/charts.
     // Spectator rows are kept in a separate bucket only for the "Spectator total number registered" card.
     if(key === 'rl'){
-      brandData[key].spectatorRows = rows.filter(r => r['Category'] === 'Spectator');
-      brandData[key].rows = rows.filter(r => r['Category'] !== 'Spectator');
+      brandData[key].spectatorRows = rawRows.filter(r => r['Category'] === 'Spectator');
+      brandData[key].rows = rawRows.filter(r => r['Category'] !== 'Spectator');
     }
-    // load TSR2 supplementary data if available
+    // TSR2 supplementary data — keep last good on failure/empty
     if(brand.tsr2Url){
-      try{ brandData[key].tsr2rows = await fetchJSON(brand.tsr2Url); }catch(e){ brandData[key].tsr2rows = []; }
+      let t2 = null;
+      try{ t2 = await fetchJSON(brand.tsr2Url); }catch(e){ t2 = null; }
+      if(!Array.isArray(t2) || t2.length===0){ t2 = (prev && prev.tsr2rows) ? prev.tsr2rows : (Array.isArray(t2)?t2:[]); }
+      brandData[key].tsr2rows = t2;
     }
   }));
 
@@ -1401,7 +1415,7 @@ function renderBrandPage(brandKey){
   const data = brandData[brandKey];
   if(!data) return;
   const mytBrand = fmtMYTTime();
-  document.getElementById('statusLine_'+brandKey).textContent = "Live — " + data.rows.length + " records · updated " + mytBrand + " MYT";
+  document.getElementById('statusLine_'+brandKey).textContent = "Live — " + data.rows.length + " records · updated " + mytBrand + " MYT" + (data._stale ? " · \u26A0 couldn't refresh — showing last loaded" : "");
 
   populateCountryFilter(document.getElementById('countryFilter_'+brandKey), data.rows);
   populateCompareCountryFilter(document.getElementById('compareCountryFilter_'+brandKey), data.rows);
